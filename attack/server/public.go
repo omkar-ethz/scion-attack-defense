@@ -10,7 +10,7 @@ import (
 */
 const MaxBufferSize = 8192
 
-//var ServerPorts
+// var ServerPorts
 var ServerPorts []uint64 = []uint64{8090, 8091}
 
 // Supported Queries
@@ -18,7 +18,7 @@ type Query string
 
 const (
 	First  Query = "1"
-	Second Query = "2"
+	Second Query = "2" //best
 	Third  Query = "3"
 )
 
@@ -38,10 +38,10 @@ type request struct {
 }
 
 type Flags struct {
-	H bool
-	V bool
-	M bool
-	D bool
+	H bool // rick roll fdfsdf 28B
+	V bool // 202B
+	M bool // timestamp 211B
+	D bool // Debug 172B
 }
 
 // The meow server will always answer with a string

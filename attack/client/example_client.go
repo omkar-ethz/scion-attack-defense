@@ -16,9 +16,9 @@ import (
 // Example on how to generate a payload with the public meow API
 func GenerateClientPayload() []byte {
 	// Choose which request to send
-	var q server.Query = server.First
+	var q server.Query = server.Second
 	// Use API to build request
-	request := server.NewRequest(q)
+	request := server.NewRequest(q, false, true, true, true)
 	// serialize the request with the API Marshal function
 	d, err := request.MarshalJSON()
 	if err != nil {
