@@ -58,9 +58,12 @@ func prettyPrintUDP(pkt slayers.UDP) {
 	t := table.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.SetTitle("UDP")
+	// var req clientRequest
+	// json.Unmarshal(pkt.Payload, &req)
 	t.AppendRows([]table.Row{
 		{"SrcPort", pkt.SrcPort, "DstPort", pkt.DstPort},
 		{"Length", pkt.Length, "Checksum", pkt.Checksum},
+		// {"Meta", req},
 	})
 	t.Render()
 }
