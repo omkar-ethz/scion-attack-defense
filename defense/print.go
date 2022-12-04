@@ -40,12 +40,12 @@ func prettyPrintSCION(pkt slayers.SCION) {
 					info.Peer, info.SegID, info.Timestamp),
 			})
 		}
-		for i, hop := range path.HopFields {
-			t.AppendRow(table.Row{
-				fmt.Sprintf("HopFields[%d]", i),
-				fmt.Sprintf("%v", hop),
-			})
-		}
+		// for i, hop := range path.HopFields {
+		// 	t.AppendRow(table.Row{
+		// 		fmt.Sprintf("HopFields[%d]", i),
+		// 		fmt.Sprintf("%v", hop),
+		// 	})
+		// }
 	} else {
 		t.AppendRow(table.Row{
 			"Path", "[non-standard path type]",
